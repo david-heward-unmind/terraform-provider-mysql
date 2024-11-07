@@ -64,8 +64,8 @@ type MySQLConfiguration struct {
 type CustomTLS struct {
 	ConfigKey  string `json:"config_key"`
 	CACert     string `json:"ca_cert"`
-	ClientCert string `json:"client_cert"`
-	ClientKey  string `json:"client_key"`
+	ClientCert string `json:"client_cert,omitempty"`
+	ClientKey  string `json:"client_key,omitempty"`
 }
 
 var (
@@ -359,22 +359,26 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 			return nil, diag.Errorf("failed to append pem: %v", pem)
 		}
 
-		clientCert := make([]tls.Certificate, 0, 1)
-		var certs tls.Certificate
-		if strings.HasPrefix(customTLS.ClientCert, "-----BEGIN") {
-			certs, err = tls.X509KeyPair([]byte(customTLS.ClientCert), []byte(customTLS.ClientKey))
-		} else {
-			certs, err = tls.LoadX509KeyPair(customTLS.ClientCert, customTLS.ClientKey)
-		}
-		if err != nil {
-			return nil, diag.Errorf("error loading keypair: %v", err)
+		tlsConfigStruct = &tls.Config{
+			RootCAs: rootCertPool,
 		}
 
-		clientCert = append(clientCert, certs)
-		tlsConfigStruct = &tls.Config{
-			RootCAs:      rootCertPool,
-			Certificates: clientCert,
+		// Only handle client certificates if both cert and key are provided
+		if customTLS.ClientCert != "" && customTLS.ClientKey != "" {
+			clientCert := make([]tls.Certificate, 0, 1)
+			var certs tls.Certificate
+			if strings.HasPrefix(customTLS.ClientCert, "-----BEGIN") {
+				certs, err = tls.X509KeyPair([]byte(customTLS.ClientCert), []byte(customTLS.ClientKey))
+			} else {
+				certs, err = tls.LoadX509KeyPair(customTLS.ClientCert, customTLS.ClientKey)
+			}
+			if err != nil {
+				return nil, diag.Errorf("error loading keypair: %v", err)
+			}
+			clientCert = append(clientCert, certs)
+			tlsConfigStruct.Certificates = clientCert
 		}
+
 		err = mysql.RegisterTLSConfig(customTLS.ConfigKey, tlsConfigStruct)
 		if err != nil {
 			return nil, diag.Errorf("failed registering TLS config: %v", err)
